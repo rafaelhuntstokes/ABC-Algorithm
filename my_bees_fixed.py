@@ -26,12 +26,16 @@ class bee(object):
     def __init__(self, lower, upper, func):
         """This function is used to initialise a bee with a random solution vector, evaluate the fitness of the solution
            and update the bees abandonment counter"""
-           
+        
+        self.fitness = None 
+	   
         #initialises random solution vector between the lower and upper bounds of problem by calling random function
         self.random(lower, upper)
            
+        self.value = func(self.vector) 
+
         #computes fitness of solution vector by calling fitness function 
-        self.fitness()
+        self.calcFitness()
            
         #starts abandonment counter
         self.counter = 0 
@@ -44,13 +48,15 @@ class bee(object):
        for i in range(len(lower)):
            self.vector.append(lower[i] + random.random() * (upper[i] - lower[i]))
        
-    def fitness(self):
+       
+    def calcFitness(self):
         """Evaluates fitness of solution according to the fitness function (abritarily determined by me). Must give high 
         score for good solutions, low score to bad solutions and exists as a selection method"""
         if self.value >= 0:
             self.fitness = 1 / (self.value + 1)
         else:
             self.fitness = 1 + abs(1/self.value)
+            
             
 class beehive(object):
     """Initialises a beehive object.This class includes the functions which actually run the algorithm:
@@ -60,38 +66,7 @@ class beehive(object):
         4. Waggle dance
         5. Scout 
     """
-    def run(self):
-        """This function is called to run the ABC algorithm"""
-        
-        #an empty dictionary with two unassigned keys is created. Keys relate to global best value and mean value of sol.
-        cost = {} ; cost["best"] = [] ; cost["mean"] = []           
-        
-        #runs the algorithm for the specified number of max iterations 
-        for i in range(self.max_its):
-            
-            #employee phase - occurs size number of times - defined below in __init__. Calls send_employees function.  
-            for j in range(self.size):
-                self.send_employees(j)
-            
-            
-            #onlookers phase. Calls onlookers function defined below
-            self.send_onlookers()
-            
-            #scouts phase. Calls scout function defined below
-            self.send_scouts()
-            
-            #computes best path. Calls function defined below
-            self.find_best()
-            
-            #stores convergence information 
-            cost["best"].append(self.append)
-            cost["mean"].append(sum(bee.value for bee in self.population) / self.size)
 
-            #prints progress information by calling verbose function 
-            if self.verbose:
-                self.verbose(i, cost)
-        
-        return cost 
         
         
     def __init__(self, func, lower, upper, num_bees = 30, max_its = 100, verbose = False, seed = None, max_trials = None):
@@ -135,12 +110,49 @@ class beehive(object):
         
         #initialises best solution vector 
         self.find_best()
+
         
         #computes selection probability 
         self.compute_prob()
         
         #sets verbosity 
         self.verbose = verbose 
+        
+        
+    def run(self):
+        """This function is called to run the ABC algorithm"""
+
+        #an empty dictionary with two unassigned keys is created. Keys relate to global best value and mean value of sol.
+        cost = {} ; cost["best"] = [] ; cost["mean"] = []           
+
+        #runs the algorithm for the specified number of max iterations 
+        for i in range(self.max_its):
+            
+            #employee phase - occurs size number of times - defined below in __init__. Calls send_employees function.  
+            for j in range(self.size):
+                self.send_employees(j)
+            
+            
+            #onlookers phase. Calls onlookers function defined below
+            self.send_onlookers()
+            
+            #scouts phase. Calls scout function defined below
+            self.send_scouts()
+            
+            #computes best path. Calls function defined below
+            self.find_best()
+            
+            #stores convergence information 
+            cost["best"].append(self.best)
+            cost["mean"].append(sum(bee.value for bee in self.population) / self.size)
+
+            #prints progress information by calling verbose function 
+            if self.verbose:
+                self.verbose(i, cost)
+
+        return cost        
+        
+        
         
     def find_best(self):
         """finds current best bee candidate"""
@@ -159,7 +171,7 @@ class beehive(object):
         values = [bee.fitness for bee in self.population]
         
         total = 0 
-        for i in values:
+        for i in range(self.size):
             total = total + values[i]
         #computes probability solution is chosen in same way as original Karaboga paper circa. 2005
         #ie via "roulette wheel" selection. This use naive implimentation. See paper for upgrades. 
@@ -169,12 +181,13 @@ class beehive(object):
     def send_employees(self, index):
         """This function uses crossover and mutation to create new solutions from employed bee initial values. If mutated
         values are better than originals, mutated values are taken forward"""
-        
+    
+   
         #deepcopies current bee solution vector - avoids decimating program due to mutability of lists etc. 
         ghost_bee = copy.deepcopy(self.population[index])                      #index passed to function in run fn. 
         
         #random crossover point selected from ghost_bee solution vector. "self.dim -1" to avoid exact copies 
-        d = random.randint(0, self.dim -1)
+        d = random.randint(0, self.dims -1)
         
         #selects other 'parent' bee randomly  
         ghost_bee2 = index 
@@ -189,7 +202,7 @@ class beehive(object):
         
         #computes fitness of mutant using previous fitness function 
         ghost_bee.value = self.evaluate(ghost_bee.vector)                      #passes mutant value to function 
-        ghost_bee.fitness() 
+        ghost_bee.calcFitness()
         
         #'deterministic crowding' - method to stop removal of parents if mutants not that good 
         if ghost_bee.fitness > self.population[index].fitness:
@@ -208,7 +221,7 @@ class beehive(object):
         while num_onlookers < self.size:
             
             #draws random number bwetween 0 & 1
-            phi = random.random(0,1)
+            phi = random.uniform(0,1)
             
             #increments roulette wheel parameter beta 
             beta += phi * max(self.selection_prob)
@@ -223,16 +236,19 @@ class beehive(object):
             #increments number of onlookers 
             num_onlookers += 1 
             
+            
     def select(self, beta):
         """This is the function which implements the waggle dance phase. """
 
         #calculates probability intervals online - ie recalculated for each onlooker
-        probas = self.compute_prob()
+        # probas = self.compute_prob()
+        self.compute_prob()
 
         #selects new potential onlooker bee 
         for index in range(self.size):
-            if beta < probas[index]:
+            if beta < self.selection_prob[index]:
                 return index 
+            
             
     def send_scouts(self):
         """Scout phase. Identifies bees who's abandonment count exceeds present max trials limit.""" 
